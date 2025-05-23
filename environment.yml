@@ -1,0 +1,20 @@
+name: weather-analysis-enhanced
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pandas
+  - numpy
+  - matplotlib
+  - seaborn
+  - jupyter
+  - scikit-learn
+  - plotly
+  - streamlit
+  - requests
+  - pip
+  - pip:
+    - quarto
+    - openai
+    - python-dotenv
