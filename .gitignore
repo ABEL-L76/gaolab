@@ -16,6 +16,8 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -82,16 +84,31 @@ venv.bak/
 dmypy.json
 
 # IDE
-.vscode/
+.vscode/*
 !.vscode/settings.json
+!.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
-.idea/
-*.swp
-*.swo
-*~
+*.code-workspace
 
-# OS
+# Streamlit
+.streamlit/
+
+# Quarto
+_quarto/
+# *.html # 通常我们会忽略html输出，但如果qmd的html输出是交付物的一部分，可以不忽略notebooks目录下的html
+# *.pdf
+
+# Data files (根据项目决定是否版本控制处理后的数据)
+# data/raw/
+# data/processed/
+# results/figures/
+
+# IDE specific
+.idea/
+*.iml
+
+# OS generated files
 .DS_Store
 .DS_Store?
 ._*

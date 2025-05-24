@@ -1,0 +1,160 @@
+---
+title: "智能气象数据分析报告"
+author: "Person 5 (liyuan707)"
+date: "today"
+format:
+  html:
+    code-fold: true
+    toc: true
+    number-sections: true
+    theme: cosmo # 你可以选择其他主题
+    embed-resources: true
+jupyter: python3
+---
+
+# 1. 项目简介
+
+本项目旨在构建一个智能气象数据分析平台。通过结合数据处理、高级可视化技术和人工智能分析，我们致力于从气象数据中提取有价值的洞察，并以用户友好的方式呈现。这份报告将展示平台核心功能的分析流程和结果。
+
+# 2. 环境准备与数据加载
+
+首先，我们需要导入必要的库，并设置工作路径，以确保能够正确调用项目中的自定义模块。
+
+```{python}
+#| label: setup
+import pandas as pd
+import sys
+import os
+import plotly.io as pio
+pio.renderers.default = "plotly_mimetype+notebook" # 确保Plotly图表在Quarto中正确显示
+
+# 将src目录添加到Python路径
+# 假设qmd文件在 notebooks/ 目录下，src在项目根目录的上一层
+module_path = os.path.abspath(os.path.join('..'))
+if module_path not in sys.path:
+    sys.path.append(module_path)
+
+# 导入自定义模块
+from src.data_processor import WeatherDataProcessor
+from src.visualizer import WeatherVisualizer
+from src.ai_analyzer import WeatherAIAnalyzer
+
+# 初始化模块
+processor = WeatherDataProcessor()
+visualizer = WeatherVisualizer()
+analyzer = WeatherAIAnalyzer() # 可传入openai_api_key参数
+
+print("环境准备完成，模块已加载。")
+```
+
+## 2.1. 数据生成与预处理
+
+我们使用 `WeatherDataProcessor` 模块来生成模拟的气象数据，并进行清洗。
+
+```{python}
+#| label: data-generation
+# 生成原始数据
+raw_data = processor.generate_sample_data(start_date='2023-01-01', end_date='2023-12-31')
+print(f"原始数据已生成，共 {raw_data.shape[0]} 条记录。")
+
+# 清洗数据
+cleaned_data = processor.clean_data(raw_data.copy()) # 使用副本
+print(f"数据清洗完成。清洗后数据共 {cleaned_data.shape[0]} 条记录。")
+
+print("\n清洗后数据预览：")
+display(cleaned_data.head())
+
+print("\n数据基本统计信息：")
+display(cleaned_data.describe())
+```
+
+# 3. 探索性数据分析 (EDA)
+
+通过可视化手段探索数据的特征和模式。
+
+## 3.1. 温度变化趋势
+
+使用 `WeatherVisualizer` 绘制每日温度变化及其移动平均线。
+
+```{python}
+#| label: temp-trend
+#| fig-cap: "每日温度变化及7日、30日移动平均趋势"
+# 使用streamlit_app.py中的类似逻辑，或者调用WeatherVisualizer中新增的对应方法
+# 这里为了简化，直接使用Plotly Express，理想情况下 visualizer 模块应提供这些函数
+
+import plotly.express as px
+
+df_plot = cleaned_data.copy()
+df_plot['temp_ma7'] = df_plot['temperature'].rolling(window=7).mean()
+df_plot['temp_ma30'] = df_plot['temperature'].rolling(window=30).mean()
+
+fig_temp_trend = px.line(df_plot, x='date', y=['temperature', 'temp_ma7', 'temp_ma30'],
+                         labels={'value': '温度 (°C)', 'date': '日期', 'variable': '指标'},
+                         title="气象站温度变化趋势")
+fig_temp_trend.update_layout(legend_title_text='温度指标')
+fig_temp_trend.show()
+```
+上述图表展示了研究期间的每日温度波动，以及7日和30日移动平均线，帮助我们观察短期和长期的温度变化趋势。
+
+## 3.2. 季节性特征分析
+
+分析不同季节下各气象指标（如温度、湿度）的分布情况。
+
+```{python}
+#| label: seasonal-analysis
+#| fig-cap: "不同季节温度分布箱线图"
+
+fig_seasonal_temp = px.box(cleaned_data, x='season', y='temperature', color='season',
+                           labels={'temperature': '温度 (°C)', 'season': '季节'},
+                           title="各季节温度分布对比")
+fig_seasonal_temp.show()
+```
+通过箱线图，我们可以清晰地看到不同季节温度的分布差异，包括中位数、四分位数范围和潜在的异常点。
+
+# 4. AI 智能分析
+
+利用 `WeatherAIAnalyzer` 模块进行更深入的智能分析。
+
+## 4.1. 异常天气检测
+
+识别数据中可能存在的异常天气事件。
+
+```{python}
+#| label: anomaly-detection
+#| fig-cap: "温度数据中的异常点检测"
+
+anomalies_df, anomaly_info = analyzer.detect_anomalies(cleaned_data.copy(), features=['temperature'])
+
+print(f"异常检测信息: {anomaly_info}")
+
+if not anomalies_df.empty:
+    print(f"\n检测到 {len(anomalies_df)} 个温度异常点：")
+    display(anomalies_df[['date', 'temperature', 'is_anomaly']].head())
+
+    # 可视化异常点
+    fig_anomalies = px.scatter(cleaned_data, x='date', y='temperature', title='温度异常点检测')
+    fig_anomalies.add_scatter(x=anomalies_df['date'], y=anomalies_df['temperature'], mode='markers',
+                            marker=dict(color='red', size=10, symbol='x'), name='异常点')
+    fig_anomalies.show()
+else:
+    print("\n未检测到显著的温度异常点。")
+
+```
+上述分析利用 Isolation Forest 算法来识别温度数据中的异常情况。被标记为红色的点代表潜在的异常天气日。
+
+## 4.2. AI 生成的洞察报告
+
+调用 `generate_insights_report` 方法生成一份综合性的文本报告。
+
+```{python}
+#| label: ai-report
+
+ai_report_text = analyzer.generate_insights_report(cleaned_data.copy()) # 使用副本
+print(ai_report_text)
+```
+
+# 5. 结论与展望
+
+本报告通过Quarto文学化编程的方式，展示了智能气象数据分析平台的核心分析流程。从数据准备到探索性分析，再到AI驱动的智能洞察，平台能够有效地处理和解读气象数据。
+
+未来，可以进一步扩展AI分析功能，例如引入更复杂的时间序列预测模型，并优化Streamlit应用的交互体验。
