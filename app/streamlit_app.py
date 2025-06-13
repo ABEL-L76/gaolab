@@ -77,6 +77,7 @@ class WeatherApp:
         self.visualizer = None
         self.ai_analyzer = None
         self.data = None
+        self.filtered_data = None
         
         # 初始化组件
         try:
@@ -87,19 +88,37 @@ class WeatherApp:
             st.error(f"组件初始化失败: {e}")
     
     def load_data(self):
-        """加载或生成数据"""
+        """加载或生成数据，并支持上传自定义数据"""
+        # 优先检查用户是否上传了自己的CSV数据
+        uploaded_file = st.sidebar.file_uploader("上传你的CSV数据文件", type="csv")
+        if uploaded_file is not None:
+            try:
+                # 尝试读取上传的CSV数据
+                data = pd.read_csv(uploaded_file)
+                # 请确保CSV中包含 'date' 列，并转换为datetime格式
+                if 'date' not in data.columns:
+                    st.error("上传的数据中未找到 'date' 列，请检查数据格式。")
+                else:
+                    data['date'] = pd.to_datetime(data['date'], errors='coerce')
+                    self.data = data
+                    st.success("自定义数据加载成功！")
+            except Exception as e:
+                st.error(f"自定义数据加载失败: {e}")
+                st.info("将加载默认示例数据。")
+        
+        # 如果没有上传数据或上传失败，则使用示例数据
         if self.data is None:
-            with st.spinner("正在生成气象数据..."):
+            with st.spinner("正在生成示例气象数据..."):
                 try:
                     # 检查处理器是否存在
                     if self.processor is None:
                         st.error("数据处理器未初始化")
                         return None
                     
-                    # 生成示例数据
+                    # 生成示例数据，并进行数据清洗预处理
                     raw_data = self.processor.generate_sample_data()
                     self.data = self.processor.clean_data(raw_data)
-                    st.success("数据加载成功！")
+                    st.success("示例数据加载成功！")
                 except Exception as e:
                     st.error(f"数据加载失败: {e}")
                     return None
@@ -120,9 +139,13 @@ class WeatherApp:
         # 数据控制
         st.sidebar.markdown("### 📋 数据控制")
         
-        if st.sidebar.button("🔄 重新生成数据"):
+        if st.sidebar.button("🔄 重新生成示例数据"):
             self.data = None
-            st.rerun()
+            # 兼容处理：检查是否存在 experimental_rerun，如果不存在则提示用户手动刷新
+            if hasattr(st, "experimental_rerun"):
+                st.experimental_rerun()
+            else:
+                st.info("请手动刷新页面以重新生成示例数据。")
         
         # 数据筛选
         if self.data is not None:
@@ -165,7 +188,7 @@ class WeatherApp:
             return
         
         # 使用筛选后的数据
-        display_data = getattr(self, 'filtered_data', data)
+        display_data = self.filtered_data if self.filtered_data is not None else data
         
         # 基本统计信息
         col1, col2, col3, col4 = st.columns(4)
@@ -208,8 +231,6 @@ class WeatherApp:
         
         with col1:
             st.markdown('<h2 class="sub-header">📋 数据详情</h2>', unsafe_allow_html=True)
-            
-            # 显示数据表格
             st.dataframe(
                 display_data.head(20),
                 use_container_width=True,
@@ -227,12 +248,8 @@ class WeatherApp:
         
         with col2:
             st.markdown('<h2 class="sub-header">📈 统计摘要</h2>', unsafe_allow_html=True)
-            
-            # 统计信息
             stats = display_data[['temperature', 'humidity', 'precipitation', 'wind_speed']].describe()
             st.dataframe(stats, use_container_width=True)
-            
-            # 季节分布
             st.markdown("### 🍂 季节分布")
             season_counts = display_data['season'].value_counts()
             fig_pie = px.pie(
@@ -250,9 +267,8 @@ class WeatherApp:
         if data is None:
             return
         
-        display_data = getattr(self, 'filtered_data', data)
+        display_data = self.filtered_data if self.filtered_data is not None else data
         
-        # 图表选择
         chart_type = st.selectbox(
             "选择图表类型",
             ["温度趋势图", "季节对比分析", "相关性分析", "天气模式分析", "交互式仪表板"]
@@ -273,10 +289,8 @@ class WeatherApp:
         """显示温度趋势图"""
         st.markdown('<h2 class="sub-header">🌡️ 温度趋势分析</h2>', unsafe_allow_html=True)
         
-        # 创建温度趋势图
         fig = go.Figure()
         
-        # 原始温度数据
         fig.add_trace(go.Scatter(
             x=data['date'],
             y=data['temperature'],
@@ -286,7 +300,6 @@ class WeatherApp:
             opacity=0.7
         ))
         
-        # 移动平均
         data_copy = data.copy()
         data_copy['temp_ma7'] = data_copy['temperature'].rolling(window=7).mean()
         data_copy['temp_ma30'] = data_copy['temperature'].rolling(window=30).mean()
@@ -316,7 +329,6 @@ class WeatherApp:
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # 温度统计
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("最高温度", f"{data['temperature'].max():.1f}°C")
@@ -329,17 +341,15 @@ class WeatherApp:
         """显示季节对比分析"""
         st.markdown('<h2 class="sub-header">🍂 季节对比分析</h2>', unsafe_allow_html=True)
         
-        # 选择要分析的变量
         variable = st.selectbox(
             "选择分析变量",
             ["temperature", "humidity", "precipitation", "wind_speed"],
             format_func=lambda x: {"temperature": "温度", "humidity": "湿度", 
-                                 "precipitation": "降水量", "wind_speed": "风速"}[x]
+                                   "precipitation": "降水量", "wind_speed": "风速"}[x]
         )
         
-        # 创建箱线图
         variable_names = {"temperature": "温度", "humidity": "湿度", 
-                         "precipitation": "降水量", "wind_speed": "风速"}
+                          "precipitation": "降水量", "wind_speed": "风速"}
         
         fig = px.box(
             data, 
@@ -352,7 +362,6 @@ class WeatherApp:
         fig.update_layout(height=500)
         st.plotly_chart(fig, use_container_width=True)
         
-        # 季节统计表
         seasonal_stats = data.groupby('season')[variable].agg(['mean', 'std', 'min', 'max']).round(2)
         seasonal_stats.columns = ['平均值', '标准差', '最小值', '最大值']
         st.dataframe(seasonal_stats, use_container_width=True)
@@ -361,11 +370,9 @@ class WeatherApp:
         """显示相关性分析"""
         st.markdown('<h2 class="sub-header">🔗 相关性分析</h2>', unsafe_allow_html=True)
         
-        # 计算相关性矩阵
         numeric_cols = ['temperature', 'humidity', 'precipitation', 'wind_speed']
         corr_matrix = data[numeric_cols].corr()
         
-        # 创建热力图
         fig = px.imshow(
             corr_matrix,
             text_auto=True,
@@ -374,14 +381,12 @@ class WeatherApp:
             color_continuous_scale="RdBu_r"
         )
         
-        # 更新标签
         labels = ['温度', '湿度', '降水量', '风速']
         fig.update_xaxes(ticktext=labels, tickvals=list(range(len(labels))))
         fig.update_yaxes(ticktext=labels, tickvals=list(range(len(labels))))
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # 相关性解释
         st.markdown("### 📝 相关性解释")
         st.markdown("""
         - **正相关 (红色)**：两个变量同时增加或减少
@@ -396,7 +401,6 @@ class WeatherApp:
         col1, col2 = st.columns(2)
         
         with col1:
-            # 温度-湿度散点图
             fig1 = px.scatter(
                 data,
                 x='temperature',
@@ -405,12 +409,11 @@ class WeatherApp:
                 size='wind_speed',
                 title="温度-湿度关系图",
                 labels={'temperature': '温度 (°C)', 'humidity': '湿度 (%)', 
-                       'precipitation': '降水量 (mm)', 'wind_speed': '风速 (km/h)'}
+                        'precipitation': '降水量 (mm)', 'wind_speed': '风速 (km/h)'}
             )
             st.plotly_chart(fig1, use_container_width=True)
         
         with col2:
-            # 月度平均温度
             monthly_temp = data.groupby(data['date'].dt.month)['temperature'].mean()
             fig2 = px.line(
                 x=monthly_temp.index,
@@ -421,7 +424,6 @@ class WeatherApp:
             fig2.update_traces(mode='lines+markers')
             st.plotly_chart(fig2, use_container_width=True)
         
-        # 降水量分布
         fig3 = px.histogram(
             data,
             x='precipitation',
@@ -435,7 +437,6 @@ class WeatherApp:
         """显示交互式仪表板"""
         st.markdown('<h2 class="sub-header">📊 交互式仪表板</h2>', unsafe_allow_html=True)
         
-        # 创建综合仪表板
         fig = make_subplots(
             rows=2, cols=2,
             subplot_titles=('温度趋势', '湿度分布', '降水量分析', '风速变化'),
@@ -443,34 +444,30 @@ class WeatherApp:
                    [{"secondary_y": False}, {"secondary_y": False}]]
         )
         
-        # 温度趋势
         fig.add_trace(
             go.Scatter(x=data['date'], y=data['temperature'],
-                      mode='lines', name='温度',
-                      line=dict(color='#1f77b4', width=2)),
+                       mode='lines', name='温度',
+                       line=dict(color='#1f77b4', width=2)),
             row=1, col=1
         )
         
-        # 湿度分布
         fig.add_trace(
             go.Histogram(x=data['humidity'], name='湿度分布',
-                        marker_color='#ff7f0e', opacity=0.7),
+                         marker_color='#ff7f0e', opacity=0.7),
             row=1, col=2
         )
         
-        # 降水量分析
         seasonal_precip = data.groupby('season')['precipitation'].mean()
         fig.add_trace(
             go.Bar(x=seasonal_precip.index, y=seasonal_precip.values,
-                  name='平均降水量', marker_color='#2ca02c'),
+                   name='平均降水量', marker_color='#2ca02c'),
             row=2, col=1
         )
         
-        # 风速变化
         fig.add_trace(
             go.Scatter(x=data['date'], y=data['wind_speed'],
-                      mode='markers', name='风速',
-                      marker=dict(color='#d62728', size=4)),
+                       mode='markers', name='风速',
+                       marker=dict(color='#d62728', size=4)),
             row=2, col=2
         )
         
@@ -485,11 +482,10 @@ class WeatherApp:
         if data is None:
             return
         
-        display_data = getattr(self, 'filtered_data', data)
+        display_data = self.filtered_data if self.filtered_data is not None else data
         
         st.markdown('<div class="info-box">💡 本页面展示AI驱动的智能气象数据分析结果</div>', unsafe_allow_html=True)
         
-        # AI分析选项
         analysis_type = st.selectbox(
             "选择AI分析类型",
             ["异常检测", "智能报告生成", "预测分析"]
@@ -506,13 +502,9 @@ class WeatherApp:
         """显示异常检测结果"""
         st.markdown('<h2 class="sub-header">🔍 异常天气检测</h2>', unsafe_allow_html=True)
         
-        # 检查AI分析器是否存在
         if self.ai_analyzer is None:
             st.error("AI分析器未初始化，无法进行异常检测")
             st.info("正在使用模拟数据进行演示...")
-            
-            # 模拟异常检测结果
-            import numpy as np
             anomaly_indices = np.random.choice(data.index, size=min(10, len(data)//10), replace=False)
             simulated_anomalies = data.loc[anomaly_indices]
             
@@ -529,17 +521,13 @@ class WeatherApp:
         
         with st.spinner("AI正在分析异常天气..."):
             try:
-                # 执行异常检测
                 anomalies_result = self.ai_analyzer.detect_anomalies(data)
-                
-                # 检查返回值类型
                 if isinstance(anomalies_result, tuple):
                     anomalies, anomaly_info = anomalies_result
                 else:
                     anomalies = anomalies_result
                     anomaly_info = None
                 
-                # 显示结果
                 anomaly_count = len(anomalies) if hasattr(anomalies, '__len__') else 0
                 anomaly_rate = (anomaly_count / len(data)) * 100 if len(data) > 0 else 0
                 
@@ -551,10 +539,7 @@ class WeatherApp:
                 with col3:
                     st.metric("正常天气天数", len(data) - anomaly_count)
                 
-                # 可视化异常点
                 fig = go.Figure()
-                
-                # 正常数据点
                 if hasattr(anomalies, 'index') and len(anomalies) > 0:
                     normal_data = data[~data.index.isin(anomalies.index)]
                     
@@ -566,7 +551,6 @@ class WeatherApp:
                         marker=dict(color='blue', size=4)
                     ))
                     
-                    # 异常数据点
                     fig.add_trace(go.Scatter(
                         x=anomalies['date'].values,
                         y=anomalies['temperature'].values,
@@ -575,7 +559,6 @@ class WeatherApp:
                         marker=dict(color='red', size=8, symbol='x')
                     ))
                 else:
-                    # 如果没有异常，显示所有数据为正常
                     fig.add_trace(go.Scatter(
                         x=data['date'].values,
                         y=data['temperature'].values,
@@ -593,7 +576,6 @@ class WeatherApp:
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # 异常数据详情
                 if hasattr(anomalies, 'empty') and not anomalies.empty:
                     st.markdown("### 🚨 异常天气详情")
                     st.dataframe(anomalies, use_container_width=True)
@@ -603,9 +585,6 @@ class WeatherApp:
             except Exception as e:
                 st.error(f"异常检测失败: {e}")
                 st.info("正在使用模拟数据进行演示...")
-                
-                # 模拟异常检测结果
-                import numpy as np
                 anomaly_indices = np.random.choice(data.index, size=min(10, len(data)//10), replace=False)
                 simulated_anomalies = data.loc[anomaly_indices]
                 
@@ -623,7 +602,6 @@ class WeatherApp:
         """显示AI生成的报告"""
         st.markdown('<h2 class="sub-header">📝 AI智能报告</h2>', unsafe_allow_html=True)
         
-        # 检查AI分析器是否存在
         if self.ai_analyzer is None:
             st.error("AI分析器未初始化，无法生成报告")
             st.info("请检查OpenAI API配置和模块依赖")
@@ -632,12 +610,9 @@ class WeatherApp:
         if st.button("🤖 生成AI分析报告"):
             with st.spinner("AI正在生成分析报告..."):
                 try:
-                    # 生成AI报告 - 使用正确的方法名
                     report = self.ai_analyzer.generate_insights_report(data)
-                    
                     st.markdown("### 📊 AI分析报告")
                     st.markdown(report)
-                    
                 except Exception as e:
                     st.error(f"报告生成失败: {e}")
                     st.info("请检查OpenAI API配置")
@@ -648,14 +623,10 @@ class WeatherApp:
         
         st.info("🚧 预测功能正在开发中，敬请期待！")
         
-        # 简单的趋势分析
         st.markdown("### 📈 趋势分析")
-        
-        # 计算温度趋势
         data_copy = data.copy()
         data_copy['day_of_year'] = data_copy['date'].dt.dayofyear
         
-        # 简单线性回归
         from sklearn.linear_model import LinearRegression
         
         X = data_copy[['day_of_year']]
@@ -722,7 +693,6 @@ class WeatherApp:
         如有问题或建议，请联系开发团队。
         """)
         
-        # 显示技术统计
         st.markdown("### 📈 技术统计")
         col1, col2, col3, col4 = st.columns(4)
         
@@ -737,10 +707,7 @@ class WeatherApp:
     
     def run(self):
         """运行应用"""
-        # 显示侧边栏并获取选择的页面
         page = self.show_sidebar()
-        
-        # 根据选择显示对应页面
         if page == "📊 数据概览":
             self.show_data_overview()
         elif page == "📈 可视化分析":
@@ -752,11 +719,8 @@ class WeatherApp:
 
 def main():
     """主函数"""
-    # 创建应用实例
     app = WeatherApp()
-    
-    # 运行应用
     app.run()
 
 if __name__ == "__main__":
-    main() 
+    main()
